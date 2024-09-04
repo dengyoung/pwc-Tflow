@@ -1,0 +1,16 @@
+--stage TartanAir
+--dataset_dir home/zhangyuang/huyu/dataset
+--val_dataset things sintel
+
+--cam_intri 320.00 0.00 320.00 0.00 320.00 240.00 0.00 0.00 1.00
+--cam_intri_inv 0.0031 0.0000 -1.0000 0.0000 0.0031 -0.7500 0.0000 0.0000 1.0000
+
+--batch_size 64
+--num_works 8
+--lr 2e-4
+--weight_decay 1e-4
+
+--val_freq 2000
+--max_flow 400
+
+--distributed
