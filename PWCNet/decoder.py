@@ -37,7 +37,7 @@ class Decoder(torch.nn.Module):
 
         self.netSix = ConvBlock(in_channels=intCurrent + 128 + 128 + 96 + 64 + 32, out_channels=2, kernel_size=3, stride=1, padding=1)
 
-        self.cor =  correlation(4)
+        self.cor =  correlation.Correlation(4)
 
     # end
 
@@ -71,7 +71,7 @@ class Decoder(torch.nn.Module):
 
             # tenVolume = torch.nn.functional.leaky_relu(input=correlation.FunctionCorrelation(tenOne=tenOne, tenTwo=tenTwo), negative_slope=0.1, inplace=False)
 
-            tenVolume = torch.index_select(self.cor(tenOne, tenTwo), dim=1, index=self.index.to(tenOne).long())
+            tenVolume = torch.nn.functional.leaky_relu(input = self.cor(tenOne, tenTwo), negative_slope=0.1, inplace=False)
 
             tenFeat = torch.cat([ tenVolume ], 1)
 
@@ -79,7 +79,7 @@ class Decoder(torch.nn.Module):
             tenFlow = self.netUpflow(flowEst_Prev['tenFlow'])
             tenFeat = self.netUpfeat(flowEst_Prev['tenFeat'])
 
-            tenVolume = torch.nn.functional.leaky_relu(input=self.cor(feature=tenOne,feature=self.flow_warp(feature=tenTwo,flow=tenFlow * self.fltBackwarp)), negative_slope=0.1, inplace=False)
+            tenVolume = torch.nn.functional.leaky_relu(input=self.cor(feature1=tenOne,feature=self.flow_warp(feature2=tenTwo,flow=tenFlow * self.fltBackwarp)), negative_slope=0.1, inplace=False)
 
             tenFeat = torch.cat([ tenVolume, tenOne, tenFlow, tenFeat ], 1)
 

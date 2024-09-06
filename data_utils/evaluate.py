@@ -9,6 +9,11 @@ from data_utils import datasets
 
 from data_utils import frame_utils
 from data_utils import flow_viz
+from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+import torch.distributed as dist
+from data_utils import rotation
+from PWCNet import warping
 
 
 @torch.no_grad()
@@ -18,7 +23,7 @@ def validate_tartanair(model, _base_root=None):
     epe_list = []
     results = {}
 
-    val_dataset = datasets.TartanAir(split='validation', root_base=_base_root, test_set=True, read_rotations = False)
+    val_dataset = datasets.Tartanair(split='validation', root_base=_base_root, test_set=True, read_rotations = False)
 
     print('Number of validation image pairs: %d' % len(val_dataset))
 
@@ -47,38 +52,59 @@ def validate_tartanair(model, _base_root=None):
 
     return results
 
-def validate_tartanair_rot(model, _base_root=None):
+def validate_tartanair_rot(model, _base_root=None, cam_intri=None, cam_intri_inv=None):
     """ Perform evaluation on the TartanAir (test) split """
     model.eval()
     epe_list = []
     results = {}
 
-    val_dataset = datasets.TartanAir(split='validation', root_base=_base_root, test_set=True, read_rotations = True)
 
+    val_dataset = datasets.Tartanair(split='validation', root_base=_base_root, test_set=True, read_rotations = True)
+
+
+    
     print('Number of validation image pairs: %d' % len(val_dataset))
 
+    
     for val_id in range(len(val_dataset)):
-        image1, image2, flow_gt, _, rotation_quat = val_dataset[val_id]
 
+        image1, image2, flow_gt, _, rotation_quat = val_dataset[val_id]
         image1 = image1[None].cuda()
         image2 = image2[None].cuda()
+        flow_gt = flow_gt[None].cuda()
+        rotation_quat = rotation_quat[None].cuda()
+
+        height, width = flow_gt.shape[-2], flow_gt.shape[-1]
+
+        # Debug log
+        # print(f"Processing batch with images {image1.shape}, {image2.shape}")
+
+        R_Batch = rotation.quaternion_to_matrix(rotation_quat)
+        delt_R = warping.get_delt_R(R_Batch)
+        R_flow = warping.get_Rflow(delt_R, cam_intri, cam_intri_inv, height, width)
+        flow_gt = warping.warpping(flow_gt, -R_flow)
+
 
         # model.init_bhw(image1.shape[0], image1.shape[-2], image1.shape[-1])
 
-        results_dict = model(image1, image2)
+        results_dict = model(image1, image2, rotation_quat)
 
-        flow_pr = results_dict[-1]  # [B, 2, H, W]
+        flow_pr = results_dict[-1]
 
+        flow_gt = F.interpolate(flow_gt, size=(flow_pr.shape[-2], flow_pr.shape[-1]), mode='bilinear', align_corners=False) \
+                * flow_pr.shape[-2] / flow_gt.shape[-2]
+        
         assert flow_pr.size()[-2:] == flow_gt.size()[-2:]
 
-        epe = torch.sum((flow_pr[0].cpu() - flow_gt) ** 2, dim=0).sqrt()
-        epe_list.append(epe.view(-1).numpy())
+        epe = torch.sum((flow_pr - flow_gt) ** 2, dim=0).sqrt()
+        
+        epe_list.append(epe.cpu().detach().numpy())
 
-    epe_all = np.concatenate(epe_list)
-    epe = np.mean(epe_all)
 
+    epe_list = np.mean(np.concatenate(epe_list))
+    epe = np.mean(epe_list)
     print("Validation tartanair EPE: %.3f" % (epe))
-    results['tartanair_epe'] = epe
+    results['tartanair_rot_epe'] = epe
 
     return results
 

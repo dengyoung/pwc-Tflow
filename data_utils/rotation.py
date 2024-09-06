@@ -58,6 +58,7 @@ def quaternion_to_matrix(quaternions: torch.Tensor) -> torch.Tensor:
         ),
         -1,
     )
+    o = o.to(device=quaternions.device)
     return o.reshape(quaternions.shape[:-1] + (3, 3))
 
 

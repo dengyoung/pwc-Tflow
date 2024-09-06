@@ -82,26 +82,45 @@ class FlowDataset(data.Dataset):
         img2 = np.array(img2).astype(np.uint8)
 
         if self.read_rotations:
-            rotation_dir_base = osp.split(osp.split(self.image_list[index][0])[0])[0]
-            rotation_dir = osp.join(rotation_dir_base, 'pose_left.txt')
+            rotation_dir_base_1 = osp.split(osp.split(self.image_list[index][0])[0])[0]
+            rotation_dir_1 = osp.join(rotation_dir_base_1, 'pose_left.txt')
             # print(pose_dir)
-            image_name = osp.split(self.image_list[index][0])[1]
-            rotation_id = int(image_name.split('_')[0])
-            with open(rotation_dir, 'r', encoding='utf-8') as file:
+            image_name_1 = osp.split(self.image_list[index][0])[1]
+            rotation_id_1 = int(image_name_1.split('_')[0])
+
+            rotation_dir_base_2 = osp.split(osp.split(self.image_list[index][1])[0])[0]
+            rotation_dir_2 = osp.join(rotation_dir_base_2, 'pose_left.txt')
+            # print(pose_dir)
+            image_name_2 = osp.split(self.image_list[index][1])[1]
+            rotation_id_2 = int(image_name_2.split('_')[0])
+
+            with open(rotation_dir_1, 'r', encoding='utf-8') as file:
                 # 使用 islice 跳转到指定行
-                line = next(islice(file, rotation_id, rotation_id + 1), None)
+                line = next(islice(file, rotation_id_1, rotation_id_1 + 1), None)
                 if line is not None:
                     # line.strip()
                     # print(line)
                     # 获取旋转四元数并转换为浮点数列表
-                    rotation_quat = [float(x) for x in line.split()[3:]]
+                    rotation_quat_1 = [float(x) for x in line.split()[3:]]
                     
                     # 转换为 PyTorch Tensor
-                    rotation_quat = torch.tensor(rotation_quat, dtype=torch.float32)
-                    rotation_quat = torch.cat((rotation_quat[3].view(1), rotation_quat[:3]))
+                    rotation_quat_1 = torch.tensor(rotation_quat_1, dtype=torch.float32)
+                    rotation_quat_1 = torch.cat((rotation_quat_1[3].view(1), rotation_quat_1[:3]))
+
+            with open(rotation_dir_2, 'r', encoding='utf-8') as file:    
+                line_next = next(islice(file, rotation_id_2, rotation_id_2 + 1), None)
+                if line_next is not None:
+
+                    rotation_quat_2 = [float(x) for x in line_next.split()[3:]]
+                    rotation_quat_2 = torch.tensor(rotation_quat_2, dtype=torch.float32)
+                    rotation_quat_2 = torch.cat((rotation_quat_2[3].view(1), rotation_quat_2[:3]))
+                    # print(rotation_dir_1)
+                    # print(rotation_dir_2)
+                    # print(rotation_quat_1)
+                    # print(rotation_quat_2)
+            
+                    rotation_quat = torch.stack((rotation_quat_1, rotation_quat_2), dim=0)
                 
-                    # print(image_name)
-                    # print(rotation_id)
 
         if self.load_occlusion:
             occlusion = np.array(occlusion).astype(np.float32)
@@ -171,23 +190,70 @@ class Tartanair(FlowDataset):
         super(Tartanair, self).__init__(aug_params)
 
         self.read_rotations = read_rotations
+        image_list_all = []
+        flow_list_all = []
+        # Define the base root path
+        root_path = osp.join(root_base, root, 'test' if test_set else 'train')
 
-        root = osp.join(root_base, root)
+        # Iterate over all scenes and sub-scenes
+        for scene in os.listdir(root_path):
+            scene_path = osp.join(root_path, scene)
+            for sub_scene in os.listdir(scene_path):
+                sub_scene_path = osp.join(scene_path, sub_scene)
+                for image_folder in os.listdir(sub_scene_path):
+                    image_folder_path = osp.join(sub_scene_path, image_folder)
+
+                    # Collect image pairs and corresponding flow files
+                    images = sorted(glob(osp.join(image_folder_path, 'image_left', '*.png')))
+                    flows = sorted(glob(osp.join(image_folder_path, 'flow', '*flow.npy')))
+
+                    # Add image pairs
+                    self.image_list.extend([[images[i], images[i + 1]] for i in range(len(images) - 1)])
+                    self.flow_list.extend(flows)
+
+        # Subsample data if in test mode
         if test_set:
-            test_root = osp.join(root, 'test')
-            image_list = sorted(glob(osp.join(test_root, '*/*/*/image_left', '*.png')))
-            for i in range(len(image_list) - 1):
-                self.image_list += [[image_list[i], image_list[i + 1]]]
-            
-            self.flow_list = sorted(glob(osp.join(test_root, '*/*/*/flow', '*flow.npy')))
+            step = max(1, len(self.image_list) // 500)
+            self.image_list = self.image_list[::step]
+            self.flow_list = self.flow_list[::step]
+            self.image_list = self.image_list[:500]
+            self.flow_list = self.flow_list[:500]
+        # root = osp.join(root_base, root)
+        # if test_set:
+        #     train_root = osp.join(root, 'test')
+        #     for scene in os.listdir(train_root):
+        #         image_floder_1 = osp.join(train_root, scene)
+        #         for sub_scene in os.listdir(image_floder_1):
+        #             image_floder_2 = osp.join(image_floder_1, sub_scene)
+        #             for image_floder_3 in os.listdir(image_floder_2):
+        #                 image_list = sorted(glob(osp.join(image_floder_2, image_floder_3, 'image_left', '*.png')))
+        #                 for i in range(len(image_list) - 1):
+        #                     image_list_all += [[image_list[i], image_list[i + 1]]]
+        #                 flow_list_all += sorted(glob(osp.join(image_floder_2, image_floder_3, 'flow', '*flow.npy')))
+        
 
-        else:
-            train_root = osp.join(root, 'train')
-            image_list = sorted(glob(osp.join(train_root, '*/*/*/image_left', '*.png')))
-            for i in range(len(image_list) - 1):
-                self.image_list += [[image_list[i], image_list[i + 1]]]
+        #     step = max(1, len(image_list_all) // 100)
+        #     for i in range(0, len(image_list_all), step):
+        #         self.image_list += [image_list_all[i]]
+        #         self.flow_list += [flow_list_all[i]]
+
+        # else:
+        #     train_root = osp.join(root, 'train')
+        #     for scene in os.listdir(train_root):
+        #         image_floder_1 = osp.join(train_root, scene)
+        #         for sub_scene in os.listdir(image_floder_1):
+        #             image_floder_2 = osp.join(image_floder_1, sub_scene)
+        #             for image_floder_3 in os.listdir(image_floder_2):
+        #                 image_list = sorted(glob(osp.join(image_floder_2, image_floder_3, 'image_left', '*.png')))
+        #                 for i in range(len(image_list) - 1):
+        #                     self.image_list += [[image_list[i], image_list[i + 1]]]
+        #                 self.flow_list += sorted(glob(osp.join(image_floder_2, image_floder_3, 'flow', '*flow.npy')))
+
+            # image_list = sorted(glob(osp.join(train_root, '*/*/*/image_left', '*.png')))
+            # for i in range(len(image_list) - 1):
+            #     self.image_list += [[image_list[i], image_list[i + 1]]]
             
-            self.flow_list = sorted(glob(osp.join(train_root, '*/*/*/flow', '*flow.npy')))
+            # self.flow_list = sorted(glob(osp.join(train_root, '*/*/*/flow', '*flow.npy')))
 
 class MpiSintel(FlowDataset):
     def __init__(self, aug_params=None, split='training',

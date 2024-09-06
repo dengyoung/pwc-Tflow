@@ -6,7 +6,9 @@ class Refiner(torch.nn.Module):
         super().__init__()
 
         self.netMain = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=81 + 32 + 2 + 2 + 128 + 128 + 96 + 64 + 32, out_channels=128, kernel_size=3, stride=1, padding=1, dilation=1),
+            # input shape 567, 120, 160
+            torch.nn.Conv2d(in_channels=81 + 32 + 2 + 2 + 128 + 128 + 96 + 64 + 32 + 2, out_channels=128, kernel_size=3, stride=1, padding=1, dilation=1),
+            # output shape 567, 120, 160
             torch.nn.LeakyReLU(inplace=False, negative_slope=0.1),
             torch.nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=1, padding=2, dilation=2),
             torch.nn.LeakyReLU(inplace=False, negative_slope=0.1),

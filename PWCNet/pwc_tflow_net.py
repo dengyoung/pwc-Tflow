@@ -1,10 +1,14 @@
 import numpy as np
 import torch
 
+import sys
+sys.path.append('/home/zhangyuang/huyu/pwc-Tflow/')
 from PWCNet import encoder
 # from PWCNet import decoder
 from PWCNet import decoder_tflow
 from PWCNet import refiner
+
+
 
 class PWCNet_tflow(torch.nn.Module):
     def __init__(self):
@@ -37,4 +41,21 @@ class PWCNet_tflow(torch.nn.Module):
         flow_estimation = self.netThr(feature1[-4], feature2[-4], flow_estimation, rotation_quat)
         flow_estimation = self.netTwo(feature1[-5], feature2[-5], flow_estimation, rotation_quat)
 
-        return (flow_estimation['tenflow'] + self.refiner(flow_estimation['tenFeat'])) * 20.0
+        # return (flow_estimation['tenFlow'] + self.refiner(flow_estimation['tenFeat'])) * 20.0
+        return (flow_estimation['tenFlow'] * 0.8 + self.refiner(flow_estimation['tenFeat']) * 0.2)
+
+if __name__ == '__main__':
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = 'cpu'
+    model = PWCNet_tflow().to(device)
+    model.init_cam_intri(torch.randn(3,3), torch.randn(3,3), 480, 640)
+    image1 = torch.randn(1, 3, 480, 640).to(device)
+    image2 = torch.randn(1, 3, 480, 640).to(device)
+    rotation_quat = torch.randn(1,2,4).to(device)
+    import time
+    for i in range(10):
+        t0 = time.time()
+        output = model(image1, image2, rotation_quat)
+        print(output.shape)
+        print("time:", time.time()-t0)
+   

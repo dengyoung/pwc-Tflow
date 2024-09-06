@@ -1,22 +1,52 @@
 import torch
 import torch.nn.functional as F
 
+def get_delt_R(R_Batch):
+    """
+    计算旋转矩阵的相对变换矩阵。
 
-def get_Rflow(_delt_R, cam_intri, cam_intri_inv, height, width, device):
+    参数:
+    R_Batch (torch.Tensor): 形状为 (B, 2, 3, 3) 的张量，其中 B 是批次大小，2 表示前后两个旋转矩阵对。
+
+    返回:
+    torch.Tensor: 形状为 (B, 3, 3) 的张量，表示每一对旋转矩阵的相对旋转矩阵。
+    """
+    # batch_size = R_Batch.size(0)
+    # delt_R = torch.zeros((batch_size, 3, 3), dtype=torch.float32, device=R_Batch.device)
+
+    # for i in range(batch_size):
+    #     R1 = R_Batch[i, 0]
+    #     R2 = R_Batch[i, 1]
+
+    #     # delt_R[i] = R2 @ R1.inverse()
+    #     delt_R[i] = R2 @ torch.transpose(R1, 0, 1)
+    # delt_R = delt_R.to(R_Batch.device)
+
+    R1 = R_Batch[:, 0]  # 形状 (B, 3, 3)
+    R2 = R_Batch[:, 1]  # 形状 (B, 3, 3)
+
+    # 计算相对旋转矩阵：R2 @ R1的逆（转置代替逆矩阵）
+    delt_R = R2 @ torch.transpose(R1, 1, 2)
+    delt_R = delt_R.to(R_Batch.device)
+    
+    return delt_R
+
+
+def get_Rflow(_delt_R, cam_intri, cam_intri_inv, height, width):
 
     delt_R = _delt_R
 
     B = delt_R.size(0)
-    cam_intri = cam_intri.repeat(B, 1, 1)
-    cam_intri_inv = cam_intri_inv.repeat(B, 1, 1)
+    cam_intri = cam_intri.repeat(B, 1, 1).to(_delt_R.device)
+    cam_intri_inv = cam_intri_inv.repeat(B, 1, 1).to(_delt_R.device)
 
     H = cam_intri @ delt_R @ cam_intri_inv
 
     pix_v, pix_u = torch.meshgrid(torch.arange(height), torch.arange(width), indexing='ij')
-    pix_v = pix_v.repeat(B, 1, 1).to(device)
-    pix_u = pix_u.repeat(B, 1, 1).to(device)
+    pix_v = pix_v.repeat(B, 1, 1).to(_delt_R.device)
+    pix_u = pix_u.repeat(B, 1, 1).to(_delt_R.device)
 
-    ones_h = torch.ones((height, width)).repeat(B, 1, 1).to(device)
+    ones_h = torch.ones((height, width)).repeat(B, 1, 1).to(_delt_R.device)
 
     # pix_z = H[2][0] * pix_u + H[2][1] * pix_v + H[2][2] * ones_h + 1e-5
     pix_z = H[:,2,0].unsqueeze(1).unsqueeze(2) * pix_u + H[:,2,1].unsqueeze(1).unsqueeze(2) * pix_v + H[:,2,2].unsqueeze(1).unsqueeze(2) * ones_h + 1e-5
@@ -27,7 +57,7 @@ def get_Rflow(_delt_R, cam_intri, cam_intri_inv, height, width, device):
     pix_v_cur = (H[:,1,0].unsqueeze(1).unsqueeze(2) * pix_u + H[:,1,1].unsqueeze(1).unsqueeze(2) * pix_v + H[:,1,2].unsqueeze(1).unsqueeze(2)) / pix_z * 1.0
 
 
-    r_flow = torch.zeros((2, height, width), dtype=torch.float32).repeat(B, 1, 1, 1).to(device)
+    r_flow = torch.zeros((2, height, width), dtype=torch.float32).repeat(B, 1, 1, 1).to(_delt_R.device)
 
     r_flow[:,0] = torch.where(abs(pix_u_cur - pix_u) < 400, pix_u_cur - pix_u, 1e-5)
     r_flow[:,1] = torch.where(abs(pix_v_cur - pix_v) < 400, pix_v_cur - pix_v, 1e-5)

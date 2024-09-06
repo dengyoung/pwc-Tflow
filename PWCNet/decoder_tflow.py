@@ -41,7 +41,7 @@ class Decoder(torch.nn.Module):
 
         self.netSix = ConvBlock(in_channels=intCurrent + 128 + 128 + 96 + 64 + 32, out_channels=2, kernel_size=3, stride=1, padding=1)
 
-        self.cor =  correlation(4)
+        self.cor =  correlation.Correlation(4)
 
         self.intLevel = intLevel
 
@@ -114,20 +114,23 @@ class Decoder(torch.nn.Module):
 
             # tenVolume = torch.nn.functional.leaky_relu(input=correlation.FunctionCorrelation(tenOne=tenOne, tenTwo=tenTwo), negative_slope=0.1, inplace=False)
 
-            delt_R = rotation.quaternion_to_matrix(rotation_quat)
+            R_Batch = rotation.quaternion_to_matrix(rotation_quat)
+            delt_R = warping.get_delt_R(R_Batch)
 
             # R_flow = self.R_flow(delt_R, tenTwo.device)
-            R_flow = warping.get_Rflow(delt_R, self.cam_intri, self.cam_intri_inv, self.height, self.width, tenTwo.device)
-            resize_H = self.height // 2**self.intLevel
-            resize_W = self.width // 2**self.intLevel
+            R_flow = warping.get_Rflow(delt_R, self.cam_intri, self.cam_intri_inv, self.height, self.width)
+            resize_H = (self.height + 2**self.intLevel -1) // 2**self.intLevel
+            resize_W = (self.width + 2**self.intLevel -1)  // 2**self.intLevel
             R_flow_resized = F.interpolate(R_flow, size=(resize_H, resize_W), mode='bilinear', align_corners=False) / 2**self.intLevel
             # R_flow_pool = F.avg_pool2d(R_flow, 2**self.intLevel, 2**self.intLevel)
 
             # tenTwo = self.flow_warp(tenTwo, R_flow_pool)
             # tenTwo = self.flow_warp(tenTwo, R_flow_resized)
-            tenTwo = warping.warpping(tenTwo, R_flow_resized)
+            # print('tenTwo:', tenTwo.shape)
+            # print('R_flow_resized:', R_flow_resized.shape)
+            tenTwo = warping.warpping(input=tenTwo, flow=R_flow_resized)
 
-            tenVolume = torch.index_select(self.cor(tenOne, tenTwo), dim=1, index=self.index.to(tenOne).long())
+            tenVolume = torch.nn.functional.leaky_relu(input = self.cor(tenOne, tenTwo), negative_slope=0.1, inplace=False)
 
             tenFeat = torch.cat([ tenVolume, R_flow_resized ], 1)
 
@@ -135,16 +138,22 @@ class Decoder(torch.nn.Module):
             tenFlow = self.netUpflow(flowEst_Prev['tenFlow'])
             tenFeat = self.netUpfeat(flowEst_Prev['tenFeat'])
 
+            tenFlow = F.interpolate(tenFlow, size=(tenTwo.shape[-2], tenTwo.shape[-1]), mode='bilinear', align_corners=False)
+            tenFeat = F.interpolate(tenFeat, size=(tenTwo.shape[-2], tenTwo.shape[-1]), mode='bilinear', align_corners=False)
+
+            R_Batch = rotation.quaternion_to_matrix(rotation_quat)
+            delt_R = warping.get_delt_R(R_Batch)
+
             # R_flow = self.R_flow(delt_R, tenTwo.device)
-            R_flow = warping.get_Rflow(delt_R, self.cam_intri, self.cam_intri_inv, self.height, self.width, tenTwo.device)
-            resize_H = self.height // 2**self.intLevel
-            resize_W = self.width // 2**self.intLevel
+            R_flow = warping.get_Rflow(delt_R, self.cam_intri, self.cam_intri_inv, self.height, self.width)
+            resize_H = (self.height + 2**self.intLevel -1) // 2**self.intLevel
+            resize_W = (self.width + 2**self.intLevel -1)  // 2**self.intLevel
             R_flow_resized = F.interpolate(R_flow, size=(resize_H, resize_W), mode='bilinear', align_corners=False) / 2**self.intLevel
             # R_flow_pool = F.avg_pool2d(R_flow, 2**self.intLevel, 2**self.intLevel)
 
             # tenTwo = self.flow_warp(tenTwo, R_flow_pool)
             tenTwo = warping.warpping(tenTwo, R_flow_resized)
-            tenVolume = torch.nn.functional.leaky_relu(input=self.cor(feature=tenOne,feature=self.flow_warp(feature=tenTwo,flow=tenFlow * self.fltBackwarp)), negative_slope=0.1, inplace=False)
+            tenVolume = torch.nn.functional.leaky_relu(input=self.cor(feature1=tenOne,feature2=warping.warpping(input=tenTwo,flow=tenFlow * self.fltBackwarp)), negative_slope=0.1, inplace=False)
 
             # tenFeat = torch.cat([ tenVolume, R_flow_pool, tenOne, tenFlow, tenFeat ], 1)
             tenFeat = torch.cat([ tenVolume, R_flow_resized, tenOne, tenFlow, tenFeat ], 1)

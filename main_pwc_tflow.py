@@ -3,9 +3,11 @@ from collections import defaultdict
 import matplotlib.pyplot as plt
 import numpy as np
 import torch.utils.data.dataloader as dataloader
+import torch.distributed as dist
 
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
+from PIL import Image
 
 import torch
 from torch.optim import AdamW
@@ -19,12 +21,11 @@ from PWCNet.pwc_tflow_net import PWCNet_tflow
 from data_utils import rotation
 
 from data_utils.datasets import build_train_dataset
-from data_utils.evaluate import validate_things, validate_sintel, validate_kitti, validate_tartanair
+from data_utils.evaluate import validate_things, validate_sintel, validate_kitti, validate_tartanair_rot
 from dist_utils import get_dist_info, init_dist, setup_for_distributed
 from loss import flow_loss_func
 
 import os 
-os.environ['CUDA_VISIBLE_DEVICES'] == '4,5,6,7'
 
 parser = argparse.ArgumentParser()
 
@@ -51,7 +52,7 @@ parser.add_argument('--resume', default=None, help='state dict to load')
 parser.add_argument('--output_dir', default='.', help='output dir')
 
 # distributed training
-parser.add_argument('--local_rank', default=0, type=int)
+# parser.add_argument('--local_rank', default=0, type=int)
 parser.add_argument('--distributed', action='store_true')
 
 
@@ -65,35 +66,54 @@ writer = SummaryWriter(args.output_dir, flush_secs=1)
 cam_intri = torch.tensor(args.cam_intri,dtype=torch.float32).view(3, 3)
 cam_intri_inv = torch.tensor(args.cam_intri_inv,dtype=torch.float32).view(3, 3)
 
+args.distributed = int(os.environ.get('WORLD_SIZE', 1)) > 1 & args.distributed
+
+# if args.distributed:
+#     # adjust batch size for each gpu
+#     assert args.batch_size % torch.cuda.device_count() == 0
+#     args.batch_size = args.batch_size // torch.cuda.device_count()
+
+#     dist_params = dict(backend='nccl')
+#     init_dist('pytorch', **dist_params)
+#     # re-set gpu_ids with distributed training mode
+#     _, world_size = get_dist_info()
+#     args.gpu_ids = range(world_size)
+#     device = torch.device('cuda:{}'.format(args.local_rank))
+
+#     setup_for_distributed(args.local_rank == 0)
+
+# else:
+#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 if args.distributed:
-    # adjust batch size for each gpu
+
+    dis_params = dict(backend='nccl')
+    dist.init_process_group(backend='nccl')
+
+    local_rank = int(os.environ['LOCAL_RANK'])
+    torch.cuda.set_device(local_rank)
+
     assert args.batch_size % torch.cuda.device_count() == 0
     args.batch_size = args.batch_size // torch.cuda.device_count()
+    device = torch.device(f'cuda:{local_rank}')
 
-    dist_params = dict(backend='nccl')
-    init_dist('pytorch', **dist_params)
-    # re-set gpu_ids with distributed training mode
-    _, world_size = get_dist_info()
-    args.gpu_ids = range(world_size)
-    device = torch.device('cuda:{}'.format(args.local_rank))
-
-    setup_for_distributed(args.local_rank == 0)
-
+    setup_for_distributed(local_rank == 0)
 else:
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+print('load the dataset')
 train_dataset = build_train_dataset(args.stage, args.dataset_dir)
 print('Number of training images:', len(train_dataset))
 
 if args.distributed:
     train_sampler = torch.utils.data.distributed.DistributedSampler(
         train_dataset,
-        num_replicas=torch.cuda.device_count(),
-        rank=args.local_rank)
+        num_replicas=dist.get_world_size(),
+        rank=local_rank)
 else:
     train_sampler = None
 
-shuffle = False if args.distributed else True
+shuffle = not args.distributed
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
                                             shuffle=shuffle, num_workers=args.num_workers,
                                             pin_memory=True, drop_last=True,
@@ -105,8 +125,8 @@ model = PWCNet_tflow().to(device)
 if args.distributed:
     model = torch.nn.parallel.DistributedDataParallel(
         model,
-        device_ids=[args.local_rank],
-        output_device=args.local_rank)
+        device_ids=[local_rank],
+        output_device=local_rank)
     model = model.module
 
 num_params = sum(p.numel() for p in model.parameters())
@@ -145,10 +165,13 @@ epoch = 0
 counter = 0
 video_imag_out = []
 video_flow_out = []
+video_flow_gt_out = []
 
-pbar = tqdm(range(args.num_iters),ncols=80)
+# pbar = tqdm(range(args.num_iters),ncols=80)
+pbar = tqdm(range(args.num_iters), ncols=80, dynamic_ncols=False)
 # for epoch in pbar:
-while total_steps < args.num_iters:
+# while total_steps < args.num_iters:
+for epoch in pbar:
     
     model.train()
 
@@ -163,97 +186,76 @@ while total_steps < args.num_iters:
         
         flow_pred = model(image1, image2, rotation_quat)
 
-        loss, metrics = flow_loss_func(flow_pred, flow_gt, valid, max_flow=args.max_flow, 
+        loss, metrics, flow_gt_tflow = flow_loss_func(flow_pred, flow_gt, valid, max_flow=args.max_flow, 
                                         rotation_quat=rotation_quat, cam_intri=cam_intri, cam_intri_inv=cam_intri_inv)
 
         loss.backward()
         optimizer.step()
         sheduler.step()
         pbar.set_description('loss:{}'.format(loss.item()))
-
         total_steps += 1
-
+        
         smooth_dict({
             'loss':loss,
             'traning_epe':metrics['epe'],
         })
 
-        video_imag_out.append(image1[4])
-        video_flow_out.append(flow_pred[4].clone())
 
-        if total_steps % 25 == 0:
-            for k, v in scaler_q.items():
-                writer.add_scalar(k, np.mean(v), total_steps)
-            scaler_q.clear()
-        
-        if total_steps % 200 == 0:
-            video_flow_out.clear()
-            video_imag_out.clear()
-        
-        if total_steps % args.val_freq == 0:
+        with torch.no_grad():
+            if total_steps % 10 == 0 and local_rank == 0:
+                for k, v in scaler_q.items():
+                    writer.add_scalar(k, np.mean(v), total_steps)
+                scaler_q.clear()
+                
+                flow_gt_image = flow_to_color(flow_gt_tflow[6].cpu().numpy()).transpose(2, 0, 1)
+                flow_pred_image = flow_to_color(flow_pred[6].detach().cpu().numpy()).transpose(2, 0, 1)
+                image1 = image1[6].cpu().numpy()
+
+
+                writer.add_image('flow_gt', flow_gt_image, dataformats='CHW', global_step=total_steps)
+                writer.add_image('flow_pred', flow_pred_image, dataformats='CHW', global_step=total_steps)
+                writer.add_image('image1', image1, dataformats='CHW', global_step=total_steps)
+
             
-            if args.local_rank == 0:
-                torch.save(model.state_dict(), f'{args.output_dir}/model_{total_steps}.pth')
-                print('model saved')
-                print('metrics:', metrics)
+            if total_steps % args.val_freq == 0:
+                # Ensure all processes complete their training step before validation
+                dist.barrier() if args.distributed else None
+                if local_rank == 0:
 
-            _video_imag_out = torch.stack(video_imag_out, dim=0).cpu()
-            _video_flow_out = [flow_to_color(flow_out.cpu().numpy()) for flow_out in video_flow_out]
+                    torch.save(model.state_dict(), f'{args.output_dir}/model_{total_steps}.pth')
+                    print('model saved')
+                    print('metrics:', metrics)
+                
+                #validation 
+                val_results = {}
+                
+                if 'tartanair' in args.val_dataset:
+                    test_results_dict = validate_tartanair_rot(model, _base_root=args.dataset_dir, cam_intri=cam_intri, cam_intri_inv=cam_intri_inv)
+                    if local_rank == 0:
+                        val_results.update(test_results_dict)
+                        writer.add_scalar('tartanair_validation_epe', test_results_dict['tartanair_rot_epe'], total_steps)
 
-            _video_imag_out = np.stack(_video_imag_out, dim=0).transpose(0, 3, 1, 2)
-            writer.add_video('video_imag_out', _video_imag_out, total_steps, 15)
-            writer.add_video('video_flow_out', _video_flow_out, total_steps, 15)
-            
-            #validation 
-            val_results = {}
+                if local_rank == 0:
 
-            # if 'things' in args.val_dataset:
-            #     test_results_dict = validate_things(model, dstype='frames_cleanpass', validate_subset=True, 
-            #                                         max_val_flow=args.max_flow, _base_root=args.dataset_dir)
-            #     if args.local_rank == 0:
-            #         val_results.update(test_results_dict)
-            #         writer.add_scalar('things_validation_epe', test_results_dict['frames_cleanpass_epe'], total_steps)
+                    counter += 1
 
-            # if 'sintel' in args.val_dataset:
-            #     test_results_dict = validate_sintel(model, dstype='final', _base_root=args.dataset_dir)
-            #     if args.local_rank == 0:
-            #         val_results.update(test_results_dict)
-            #         writer.add_scalar('sintel_validation_epe', test_results_dict['final_epe'], total_steps)
-                    
+                    if counter >= 20:
 
-            # if 'kitti' in args.val_dataset:
-            #     test_results_dict = validate_kitti(model, _base_root=args.dataset_dir)
-            #     if args.local_rank == 0:
-            #         val_results.update(test_results_dict)
-            #         writer.add_scalar('kitti_validation_epe', test_results_dict['kitti_epe'], total_steps)
-            
-            if 'tartanair' in args.val_dataset:
-                test_results_dict = validate_tartanair(model, _base_root=args.dataset_dir)
-                if args.local_rank == 0:
-                    val_results.update(test_results_dict)
-                    writer.add_scalar('tartanair_validation_epe', test_results_dict['tartanair_epe'], total_steps)
+                        for group in optimizer.param_groups:
+                            group['lr'] *= 0.7
 
-            if args.local_rank == 0:
+                        counter = 0
 
-                counter += 1
+                    # Save validation results
+                    val_file = os.path.join(args.output_dir, 'val_results.txt')
+                    with open(val_file, 'a') as f:
+                        f.write('step: %06d lr: %.6f\n' % (total_steps, optimizer.param_groups[-1]['lr']))
 
-                if counter >= 20:
+                        for k, v in val_results.items():
+                            f.write("| %s: %.3f " % (k, v))
 
-                    for group in optimizer.param_groups:
-                        group['lr'] *= 0.7
+                        f.write('\n\n')
 
-                    counter = 0
-
-                # Save validation results
-                val_file = os.path.join(args.output_dir, 'val_results.txt')
-                with open(val_file, 'a') as f:
-                    f.write('step: %06d lr: %.6f\n' % (total_steps, optimizer.param_groups[-1]['lr']))
-
-                    for k, v in val_results.items():
-                        f.write("| %s: %.3f " % (k, v))
-
-                    f.write('\n\n')
-
-            model.train()
+                model.train()
 
     epoch += 1
