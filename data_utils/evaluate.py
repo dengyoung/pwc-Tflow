@@ -89,7 +89,10 @@ def validate_tartanair_rot(model, _base_root=None, cam_intri=None, cam_intri_inv
 
         results_dict = model(image1, image2, rotation_quat)
 
-        flow_pr = results_dict[-1]
+        # flow_6, flow_5, flow_4, flow_3, flow_2 = results_dict
+        flow_pr = results_dict[4]
+
+        # flow_pr = results_dict[-1]
 
         flow_gt = F.interpolate(flow_gt, size=(flow_pr.shape[-2], flow_pr.shape[-1]), mode='bilinear', align_corners=False) \
                 * flow_pr.shape[-2] / flow_gt.shape[-2]
@@ -106,7 +109,7 @@ def validate_tartanair_rot(model, _base_root=None, cam_intri=None, cam_intri_inv
     print("Validation tartanair EPE: %.3f" % (epe))
     results['tartanair_rot_epe'] = epe
 
-    return results
+    return results, flow_pr.squeeze(0), flow_gt.squeeze(0)
 
 def validate_chairs(model, _base_root=None):
     """ Perform evaluation on the FlyingChairs (test) split """

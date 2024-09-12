@@ -194,7 +194,7 @@ for epoch in pbar:
         sheduler.step()
         pbar.set_description('loss:{}'.format(loss.item()))
         total_steps += 1
-        
+
         smooth_dict({
             'loss':loss,
             'traning_epe':metrics['epe'],
@@ -207,11 +207,15 @@ for epoch in pbar:
                     writer.add_scalar(k, np.mean(v), total_steps)
                 scaler_q.clear()
                 
-                flow_gt_image = flow_to_color(flow_gt_tflow[6].cpu().numpy()).transpose(2, 0, 1)
-                flow_pred_image = flow_to_color(flow_pred[6].detach().cpu().numpy()).transpose(2, 0, 1)
-                image1 = image1[6].cpu().numpy()
+                Tflow_gt__image = flow_to_color(flow_gt_tflow[6].cpu().numpy()).transpose(2, 0, 1)
+                flow_gt_image = flow_to_color(flow_gt[6].cpu().numpy()).transpose(2, 0, 1)
+                # flow_pred_image = flow_to_color(flow_pred[6].cpu().numpy()).transpose(2, 0, 1)
+                flow_pred_image = flow_to_color(flow_pred[4][6].cpu().numpy()).transpose(2, 0, 1)
+                image1 = image1[6]
+                image1 /=255.0
 
 
+                writer.add_image('Tflow_gt', Tflow_gt__image, dataformats='CHW', global_step=total_steps)
                 writer.add_image('flow_gt', flow_gt_image, dataformats='CHW', global_step=total_steps)
                 writer.add_image('flow_pred', flow_pred_image, dataformats='CHW', global_step=total_steps)
                 writer.add_image('image1', image1, dataformats='CHW', global_step=total_steps)
@@ -230,10 +234,15 @@ for epoch in pbar:
                 val_results = {}
                 
                 if 'tartanair' in args.val_dataset:
-                    test_results_dict = validate_tartanair_rot(model, _base_root=args.dataset_dir, cam_intri=cam_intri, cam_intri_inv=cam_intri_inv)
+                    test_results_dict, val_flow_pr, val_flow_gt = \
+                        validate_tartanair_rot(model, _base_root=args.dataset_dir, cam_intri=cam_intri, cam_intri_inv=cam_intri_inv)
                     if local_rank == 0:
                         val_results.update(test_results_dict)
                         writer.add_scalar('tartanair_validation_epe', test_results_dict['tartanair_rot_epe'], total_steps)
+                        val_flow_gt_image = flow_to_color(val_flow_gt.cpu().numpy()).transpose(2, 0, 1)
+                        val_flow_pr_image = flow_to_color(val_flow_pr.cpu().numpy()).transpose(2, 0, 1)
+                        writer.add_image('val_flow_gt', val_flow_gt_image, dataformats='CHW', global_step=total_steps)
+                        writer.add_image('val_flow_pr', val_flow_pr_image, dataformats='CHW', global_step=total_steps)
 
                 if local_rank == 0:
 
