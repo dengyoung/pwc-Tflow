@@ -254,6 +254,27 @@ class Tartanair(FlowDataset):
             #     self.image_list += [[image_list[i], image_list[i + 1]]]
             
             # self.flow_list = sorted(glob(osp.join(train_root, '*/*/*/flow', '*flow.npy')))
+class small_Tartanair(FlowDataset):
+    def __init__(self, aug_params=None, data_dir=None,
+                 test_set=False,
+                 read_rotations=False,):
+        super(small_Tartanair, self).__init__(aug_params)
+
+        self.read_rotations = read_rotations
+
+        images = sorted(glob(osp.join(data_dir, 'image_left', '*.png')))
+        flows = sorted(glob(osp.join(data_dir, 'flow', '*flow.npy')))
+        self.image_list.extend([[images[i], images[i + 1]] for i in range(len(images) - 1)])
+        self.flow_list.extend(flows)
+
+        # Subsample data if in test mode
+        if test_set:
+            step = max(1, len(self.image_list) // 50)
+            self.image_list = self.image_list[::step]
+            self.flow_list = self.flow_list[::step]
+            self.image_list = self.image_list[:50]
+            self.flow_list = self.flow_list[:50]
+
 
 class MpiSintel(FlowDataset):
     def __init__(self, aug_params=None, split='training',
@@ -448,6 +469,10 @@ def build_train_dataset(stage, _root_base= None):
 
         train_dataset = Tartanair(aug_params, split='training', root_base=_root_base, read_rotations=False)
     
+    elif stage == 'small_tartanair_r':
+        aug_params = {'crop_size': (480, 640), 'min_scale': -0.25, 'max_scale': 0.9, 'do_flip': False}
+
+        train_dataset = small_Tartanair(aug_params, data_dir=_root_base, read_rotations=True)
     elif stage == 'tartanair_r':
         aug_params = {'crop_size': (480, 640), 'min_scale': -0.25, 'max_scale': 0.9, 'do_flip': False}
 

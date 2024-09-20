@@ -1,17 +1,18 @@
---stage tartanair_r
---dataset_dir /mnt/sdc
+--stage small_tartanair_r
+--dataset_dir /mnt/sdc/TartanAir/train/seasonsforest_winter/Easy/P005
+--validation_dir /mnt/sdc/TartanAir/train/seasonsforest_winter/Easy/P008
 --val_dataset tartanair
 
 --cam_intri 320.00 0.00 320.00 0.00 320.00 240.00 0.00 0.00 1.00
 --cam_intri_inv 0.0031 0.0000 -1.0000 0.0000 0.0031 -0.7500 0.0000 0.0000 1.0000
 
---batch_size 64
---num_workers 8
+--batch_size 10
+--num_workers 4
 --lr 2e-4
 --weight_decay 1e-4
 --num_iters 100000
 
---val_freq 1000
+--val_freq 300
 --max_flow 400
 
 --distributed

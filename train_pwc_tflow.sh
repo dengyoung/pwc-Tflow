@@ -44,4 +44,4 @@ source /mnt/data_ssd/miniforge3/etc/profile.d/conda.sh
 conda activate e2e_dy
 # python -m torch.distributed.launch --nproc_per_node=4 main_pwc_tflow.py $ARGS |& tee output.log
 export CUDA_LAUNCH_BLOCKING=1
-CUDA_VISIBLE_DEVICES=4,5,6,7 torchrun --nproc_per_node=4 --master_addr='127.0.0.1' --master_port=6735 main_pwc_tflow.py $ARGS |& tee output.log
+CUDA_VISIBLE_DEVICES=5,6 torchrun --nproc_per_node=2 --master_addr='127.0.0.1' --master_port=6735 main_pwc_tflow.py $ARGS |& tee output.log

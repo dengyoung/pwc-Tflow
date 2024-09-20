@@ -31,6 +31,7 @@ parser = argparse.ArgumentParser()
 
 #dataset parameters
 parser.add_argument('--dataset_dir', type=str, default=None, help='datset dir')
+parser.add_argument('--validation_dir', type=str, default=None, help='vilidation dataset dir')
 parser.add_argument('--val_dataset', type=str, default='things', help='validation dataset')
 parser.add_argument('--stage', type=str, default='tartanair', help='training stage')
 
@@ -207,11 +208,11 @@ for epoch in pbar:
                     writer.add_scalar(k, np.mean(v), total_steps)
                 scaler_q.clear()
                 
-                Tflow_gt__image = flow_to_color(flow_gt_tflow[6].cpu().numpy()).transpose(2, 0, 1)
-                flow_gt_image = flow_to_color(flow_gt[6].cpu().numpy()).transpose(2, 0, 1)
+                Tflow_gt__image = flow_to_color(flow_gt_tflow[2].cpu().numpy()).transpose(2, 0, 1)
+                flow_gt_image = flow_to_color(flow_gt[2].cpu().numpy()).transpose(2, 0, 1)
                 # flow_pred_image = flow_to_color(flow_pred[6].cpu().numpy()).transpose(2, 0, 1)
-                flow_pred_image = flow_to_color(flow_pred[4][6].cpu().numpy()).transpose(2, 0, 1)
-                image1 = image1[6]
+                flow_pred_image = flow_to_color(flow_pred[4][2].cpu().numpy()).transpose(2, 0, 1)
+                image1 = image1[2]
                 image1 /=255.0
 
 
@@ -235,7 +236,7 @@ for epoch in pbar:
                 
                 if 'tartanair' in args.val_dataset:
                     test_results_dict, val_flow_pr, val_flow_gt = \
-                        validate_tartanair_rot(model, _base_root=args.dataset_dir, cam_intri=cam_intri, cam_intri_inv=cam_intri_inv)
+                        validate_tartanair_rot(model, _base_root=args.validation_dir, cam_intri=cam_intri, cam_intri_inv=cam_intri_inv)
                     if local_rank == 0:
                         val_results.update(test_results_dict)
                         writer.add_scalar('tartanair_validation_epe', test_results_dict['tartanair_rot_epe'], total_steps)

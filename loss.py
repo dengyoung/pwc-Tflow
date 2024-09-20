@@ -16,8 +16,8 @@ def flow_loss_func(flow_preds, flow_gt, valid, max_flow=400, rotation_quat=None,
         # flow_gt = warping.warpping(flow_gt, -R_flow)
         flow_gt = flow_gt - R_flow
     
-    # flow6, flow5, flow4, flow3, flow2 = flow_preds
-    weights = [0.32, 0.08, 0.02, 0.01, 0.005, 0.0025]
+    # flow5, flow4, flow3, flow2, flow1 = flow_preds
+    weights = [0.30, 0.15, 0.08, 0.08, 0.08]
 
     # weights = [0.0025, 0.005, 0.01, 0.02, 0.08, 0.32]
     epe_all = 0.0

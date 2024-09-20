@@ -59,7 +59,8 @@ def validate_tartanair_rot(model, _base_root=None, cam_intri=None, cam_intri_inv
     results = {}
 
 
-    val_dataset = datasets.Tartanair(split='validation', root_base=_base_root, test_set=True, read_rotations = True)
+    # val_dataset = datasets.Tartanair(split='validation', root_base=_base_root, test_set=True, read_rotations = True)
+    val_dataset = datasets.small_Tartanair(data_dir=_base_root, test_set= True, read_rotations=True)
 
 
     
@@ -82,7 +83,8 @@ def validate_tartanair_rot(model, _base_root=None, cam_intri=None, cam_intri_inv
         R_Batch = rotation.quaternion_to_matrix(rotation_quat)
         delt_R = warping.get_delt_R(R_Batch)
         R_flow = warping.get_Rflow(delt_R, cam_intri, cam_intri_inv, height, width)
-        flow_gt = warping.warpping(flow_gt, -R_flow)
+        # flow_gt = warping.warpping(flow_gt, -R_flow)
+        flow_gt = flow_gt - R_flow
 
 
         # model.init_bhw(image1.shape[0], image1.shape[-2], image1.shape[-1])
